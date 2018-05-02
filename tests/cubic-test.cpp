@@ -7,7 +7,7 @@ namespace {
 using MPCf = motion::profile::cubic<float>;
 class MPTest : public ::testing::Test {
  protected:
-    const float tol = 1e-5f;
+    const float tol = 1e-4f;
     MPCf mp;
 };
 
@@ -37,6 +37,25 @@ TEST_F(MPTest, UnitProfileTest) {
   EXPECT_EQ( mp.q_at(1), mp.q_at(2) );
   EXPECT_EQ( mp.q_at(-1), mp.q_at(0) );
 }
+
+TEST_F(MPTest, UnitProfileOffsetTest) {
+  mp.set( 1,2,3,4,5,6 );
+  EXPECT_NEAR(3, mp.q_at(1), tol);
+  EXPECT_NEAR(5, mp.v_at(1), tol);
+  
+  EXPECT_NEAR(3.3813, mp.q_at(1.5), 1e-1);
+
+  // Some random value (fair diceroll)
+  EXPECT_NEAR(3.3817, mp.q_at(1.1010), 1e-1);
+
+  EXPECT_NEAR(4, mp.q_at(2), tol);
+  EXPECT_NEAR(6, mp.v_at(2), tol);
+
+  // Expect that out of range evaluates to exactly the last in range value
+  EXPECT_EQ( mp.q_at(0), mp.q_at(1) );
+  EXPECT_EQ( mp.q_at(2), mp.q_at(3) );
+}
+
 
 using MPCd = motion::profile::cubic<double>;
 class MPDTest : public ::testing::Test {
