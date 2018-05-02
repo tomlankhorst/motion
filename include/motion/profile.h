@@ -46,9 +46,9 @@ protected:
    *
    * @return T time within range t0 tf
    */
-  T tr()
+  T tr() const
   {
-    auto t = S(rt, cc);
+    auto t  = S(rt, cc);
     auto t0 = S(rt,c0);
     auto tf = S(rt,cf);
 
