@@ -34,4 +34,15 @@ namespace {
       EXPECT_EQ(mp.q_at(-1), mp.q_at(0));
     }
 
+    TEST_F(MPLTest, LinearProfileOffsetTest) {
+      mp.set(1,2,3,4);
+      
+      EXPECT_NEAR(3.0f, mp.q_at(0), tol);
+      EXPECT_NEAR(3.0f, mp.q_at(1), tol);
+      EXPECT_NEAR(3.5f, mp.q_at(1.5), tol);
+      EXPECT_NEAR(4.0f, mp.q_at(2), tol);
+      EXPECT_NEAR(4.0f, mp.q_at(3), tol);
+
+    }
+
 } // namespace
