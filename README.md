@@ -25,3 +25,13 @@ MP.v_at(10);
 // Motion profile from last q (5) to 0 in time 10 to 15 
 MP.set(15,0);
 ```
+
+Fill a container with N values from t0, Ts apart
+
+```
+std::vector<float> v(N);
+std::generate(v.begin(), v.end(), [](){
+    static float t = t0;
+    return MP.at_q( t+= Ts );
+});
+```
