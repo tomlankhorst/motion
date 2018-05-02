@@ -45,6 +45,7 @@ if(TESTS)
   add_executable(motiontests
       ./tests/gtest.cpp
       ./tests/cubic-test.cpp
+      ./tests/linear-test.cpp
       )
 
 

@@ -9,17 +9,123 @@ namespace motion { namespace profile {
 
 using namespace Eigen;
 
+template<typename T>
+class q_profile {
+public:
+    virtual T q_at(T) = 0;
+    virtual T q() = 0;
+};
+
+template<typename T>
+class v_profile : public q_profile<T> {
+    virtual T v_at(T) = 0;
+    virtual T v() = 0;
+};
+
 template<typename T=float>
-class cubic
+class linear : public q_profile<T>
+{
+  using TS = Matrix<T,2,3>;
+  using TC = Matrix<T,2,1>;
+  using TT = Matrix<T,1,2>;
+
+  enum rows {
+    t_row = 0,
+    q_row
+  };
+
+  enum cols {
+    cur_col = 0,
+    nul_col,
+    f_col
+  };
+
+  // State-matrix
+  TS S;
+
+  // Coef-vector
+  TC C;
+
+  T time()
+  {
+    auto t = S(t_row, cur_col);
+    auto t0 = S(t_row, nul_col);
+    auto tf = S(t_row, f_col);
+
+    auto tu = tf > t0 ? tf : t0;
+    auto tl = tf > t0 ? t0 : tf;
+
+    return std::min(tu, std::max(tl, t));
+  }
+
+  const TT qs()
+  {
+    auto t = time();
+    TT s;
+    s << 1, t;
+    return s;
+  }
+
+  void upd_coef()
+  {
+    auto t0 = S(t_row, nul_col);
+    auto tf = S(t_row, f_col);
+    auto q0 = S(q_row, nul_col);
+    auto qf = S(q_row, f_col);
+
+    Matrix<T,2,2> A;
+    Matrix<T,2,1> Q;
+
+    A <<  1, t0,
+          1, tf;
+
+    Q << q0, qf;
+
+    C = A.colPivHouseholderQr().solve(Q);
+  }
+
+public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  linear()
+  {
+    // Initialize the state to zeros
+    S = TS::Zero();
+    C = TC::Zero();
+  }
+  T q_at(T t)
+  {
+    S(t_row,cur_col) = t;
+    return q();
+  }
+  T q()
+  {
+    auto q = qs()*C;
+    return q(0);
+  }
+  void set(T tf, T qf)
+  {
+    auto t0 = S(t_row, cur_col);
+    auto q0 = q();
+    set(t0, tf, q0, qf);
+  }
+  void set(T t0, T tf, T q0, T qf)
+  {
+    S.block(0,1,2,2) << t0, tf, q0, qf;
+    upd_coef();
+  }
+};
+
+template<typename T=float>
+class cubic : public v_profile<T>
 {
   using TS = Matrix<T,3,3>;
   using TC = Matrix<T,4,1>;
   using TT = Matrix<T,1,4>;
 
-  enum rows { 
+  enum rows {
     t_row = 0,
-    v_row,
-    q_row
+    q_row,
+    v_row
   };
 
   enum cols {
@@ -32,8 +138,8 @@ class cubic
    * State matrix
    *
    * t t0 tf
-   * v v0 vf
    * q q0 qf
+   * v v0 vf
    */
   TS S; 
 
@@ -49,7 +155,11 @@ class cubic
     auto t = S(t_row, cur_col);
     auto t0 = S(t_row, nul_col);
     auto tf = S(t_row, f_col);
-    return std::min(tf, std::max(t0, t));
+
+    auto tu = tf > t0 ? tf : t0;
+    auto tl = tf > t0 ? t0 : tf;
+
+    return std::min(tu, std::max(tl, t));
   }
 
   const TT qs() 
@@ -80,9 +190,9 @@ class cubic
     Matrix<T,4,4> A;
     Matrix<T,4,1> Q;
 
-    A <<  1, t0,  std::pow(t0,2),   std::pow(t0,3), 
-          0, 1,   2*t0,             3*std::pow(t0,2), 
-          1, tf,  std::pow(tf,2),   std::pow(tf,3), 
+    A <<  1, t0,  std::pow(t0,2),   std::pow(t0,3),
+          0, 1,   2*t0,             3*std::pow(t0,2),
+          1, tf,  std::pow(tf,2),   std::pow(tf,3),
           0, 1,   2*tf,             3*std::pow(tf,2);
 
     Q << q0, v0, qf, vf;
@@ -118,16 +228,17 @@ public:
     auto v = vs()*C;
     return v(0);
   }
-  void set(T t, T qf, T vf = 0)
+  void set(T tf, T qf, T vf = 0)
   {
     auto q0 = q();
-    S(q_row, nul_col) = q0;
     auto v0 = v();
-    S(v_row, nul_col) = v0;
+    auto t0 = S(t_row, cur_col);
 
-    S(q_row, f_col) = qf;
-    S(v_row, f_col) = vf;
-
+    set(t0, tf, q0, qf, v0, vf);
+  }
+  void set(T t0, T tf, T q0, T qf, T v0=0, T vf=0)
+  {
+    S.block(0,1,3,2) << t0, tf, q0, qf, v0, vf;
     upd_coef();
   }
 };
