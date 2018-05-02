@@ -9,48 +9,48 @@ namespace motion { namespace profile {
 
 using namespace Eigen;
 
-template<typename T>
-class q_profile {
-public:
-    virtual T q_at(T) = 0;
-    virtual T q() = 0;
-};
+/**
+ * @enum S-row t(ime), v(elocity), a(cceleration)
+ */
+enum Sr { rt=0, rq, rv, ra };
 
-template<typename T>
-class v_profile : public q_profile<T> {
-    virtual T v_at(T) = 0;
-    virtual T v() = 0;
-};
+/**
+ * @enum S-col c(urrent), 0(ul), f(inal)
+ */
+enum Sc { cc=0, c0,cf };
 
-template<typename T=float>
-class linear : public q_profile<T>
-{
-  using TS = Matrix<T,2,3>;
-  using TC = Matrix<T,2,1>;
-  using TT = Matrix<T,1,2>;
+template <typename T, size_t order>
+class profile {
+protected:
+  // First order has one state (q), third has two (q,v)...
+  using TS = Matrix<T,1+(order+1)/2,3>;
 
-  enum rows {
-    t_row = 0,
-    q_row
-  };
+  // Coefficients is order+1
+  using TC = Matrix<T,order+1,1>;
 
-  enum cols {
-    cur_col = 0,
-    nul_col,
-    f_col
-  };
+  // Phi vector has order+1 values
+  using TT = Matrix<T,1,order+1>;
 
-  // State-matrix
+  /**
+   * State matrix with `col` and `row` indices
+   */
   TS S;
 
-  // Coef-vector
+  /**
+   * Coefficient vector
+   */
   TC C;
 
-  T time()
+  /**
+   * Current time within range
+   *
+   * @return T time within range t0 tf
+   */
+  T tr()
   {
-    auto t = S(t_row, cur_col);
-    auto t0 = S(t_row, nul_col);
-    auto tf = S(t_row, f_col);
+    auto t = S(rt, cc);
+    auto t0 = S(rt,c0);
+    auto tf = S(rt,cf);
 
     auto tu = tf > t0 ? tf : t0;
     auto tl = tf > t0 ? t0 : tf;
@@ -58,184 +58,221 @@ class linear : public q_profile<T>
     return std::min(tu, std::max(tl, t));
   }
 
+public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  /**
+   * Initialize state and coefficients to zero
+   */
+  profile()
+  {
+    S = TS::Zero();
+    C = TC::Zero();
+  }
+
+  /**
+   * Takes a time and returns the appropriate value
+   * @param t time
+   * @return T value
+   */
+  virtual T q_at(T t) = 0;
+
+  /**
+   * Returns the value for the set time
+   * @return T value
+   */
+  virtual T q() = 0;
+};
+
+/**
+ * Linear motion profile
+ *
+ * @tparam T datatype
+ */
+template<typename T=float>
+class linear : public profile<T, 1>
+{
+  using p = profile<T,1>;
+  using typename p::TT;
+  using p::S;
+  using p::C;
+
   const TT qs()
   {
-    auto t = time();
     TT s;
-    s << 1, t;
+    s << 1, p::tr();
     return s;
   }
 
   void upd_coef()
   {
-    auto t0 = S(t_row, nul_col);
-    auto tf = S(t_row, f_col);
-    auto q0 = S(q_row, nul_col);
-    auto qf = S(q_row, f_col);
-
     Matrix<T,2,2> A;
     Matrix<T,2,1> Q;
+
+    auto t0 = S(rt,c0);
+    auto tf = S(rt,cf);
 
     A <<  1, t0,
           1, tf;
 
-    Q << q0, qf;
+    Q << S(rq,c0), S(rq,cf);
 
     C = A.colPivHouseholderQr().solve(Q);
   }
 
 public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  linear()
-  {
-    // Initialize the state to zeros
-    S = TS::Zero();
-    C = TC::Zero();
-  }
+  /**
+   * @inherit
+   */
   T q_at(T t)
   {
-    S(t_row,cur_col) = t;
+    S(rt,cc) = t;
     return q();
   }
+
+  /**
+   * @inherit
+   */
   T q()
   {
     auto q = qs()*C;
     return q(0);
   }
+
+  /**
+   * Set a new final time and q
+   * @param tf
+   * @param qf
+   */
   void set(T tf, T qf)
   {
-    auto t0 = S(t_row, cur_col);
+    auto t0 = S(rt, cc);
     auto q0 = q();
     set(t0, tf, q0, qf);
   }
+
+  /**
+   * Set both a final and start time and q
+   * @param t0
+   * @param tf
+   * @param q0
+   * @param qf
+   */
   void set(T t0, T tf, T q0, T qf)
   {
     S.block(0,1,2,2) << t0, tf, q0, qf;
     upd_coef();
   }
+
 };
 
+/**
+ * Cubic motion profile
+ *
+ * @tparam T datatype
+ */
 template<typename T=float>
-class cubic : public v_profile<T>
+class cubic : public profile<T,3>
 {
-  using TS = Matrix<T,3,3>;
-  using TC = Matrix<T,4,1>;
-  using TT = Matrix<T,1,4>;
+  using p = profile<T,3>;
+  using typename p::TT;
+  using p::S;
+  using p::C;
 
-  enum rows {
-    t_row = 0,
-    q_row,
-    v_row
-  };
-
-  enum cols {
-    cur_col = 0,
-    nul_col,
-    f_col
-  };
-
-  /**
-   * State matrix
-   *
-   * t t0 tf
-   * q q0 qf
-   * v v0 vf
-   */
-  TS S; 
-
-  /**
-   * Coefficients vector
-   *
-   * a0 a1 a2 a3 .'
-   */
-  TC C;
-
-  T time()
+  const TT qs()
   {
-    auto t = S(t_row, cur_col);
-    auto t0 = S(t_row, nul_col);
-    auto tf = S(t_row, f_col);
-
-    auto tu = tf > t0 ? tf : t0;
-    auto tl = tf > t0 ? t0 : tf;
-
-    return std::min(tu, std::max(tl, t));
-  }
-
-  const TT qs() 
-  {
-    auto t = time();
     TT s;
+    auto t = p::tr();
     s << 1, t, std::pow(t,2), std::pow(t,3);
     return s;
   }
 
   const TT vs() 
   {
-    auto t = time();
     TT s;
+    auto t = p::tr();
     s << 0, 1, 2*t, 3*std::pow(t,2);
     return s;
   }
 
   void upd_coef()
   {
-    auto t0 = S(t_row, nul_col);
-    auto tf = S(t_row, f_col);
-    auto v0 = S(v_row, nul_col);
-    auto vf = S(v_row, f_col);
-    auto q0 = S(q_row, nul_col);
-    auto qf = S(q_row, f_col);
-
     Matrix<T,4,4> A;
     Matrix<T,4,1> Q;
+
+    auto t0 = S(rt,c0);
+    auto tf = S(rt,cf);
 
     A <<  1, t0,  std::pow(t0,2),   std::pow(t0,3),
           0, 1,   2*t0,             3*std::pow(t0,2),
           1, tf,  std::pow(tf,2),   std::pow(tf,3),
           0, 1,   2*tf,             3*std::pow(tf,2);
 
-    Q << q0, v0, qf, vf;
+    Q << S(rq,c0), S(rv,c0), S(rq,cf), S(rv,cf);
 
     C = A.colPivHouseholderQr().solve(Q);
   }
 
 public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  cubic()
-  {
-    // Initialize the state to zeros
-    S = TS::Zero();
-    C = TC::Zero();
-  }
+
+  /**
+   * @inherit
+   */
   T q_at(T t)
   {
-    S(t_row,cur_col) = t;
+    S(rt,cc) = t;
     return q();
   }
+
+  /**
+   * @inherit
+   */
   T q()
   {
     auto q = qs()*C;
     return q(0);
   }
+
+  /**
+   * Get v at t
+   * @param t time
+   * @return q
+   */
   T v_at(T t)
   {
-    S(t_row,cur_col) = t;
+    S(rt,cc) = t;
     return v();
   }
+
+  /**
+   * Get v at current t
+   * @return v
+   */
   T v()
   {
     auto v = vs()*C;
     return v(0);
   }
+
+  /**
+   * Set new final t, q, v with current time as zero
+   * @param tf
+   * @param qf
+   * @param vf
+   */
   void set(T tf, T qf, T vf = 0)
   {
-    auto q0 = q();
-    auto v0 = v();
-    auto t0 = S(t_row, cur_col);
-
-    set(t0, tf, q0, qf, v0, vf);
+    set(S(rt,cc), tf, q(), qf, v(), vf);
   }
+
+  /**
+   * Set new null and final t, q, v
+   * @param t0
+   * @param tf
+   * @param q0
+   * @param qf
+   * @param v0
+   * @param vf
+   */
   void set(T t0, T tf, T q0, T qf, T v0=0, T vf=0)
   {
     S.block(0,1,3,2) << t0, tf, q0, qf, v0, vf;
